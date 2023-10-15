@@ -1,0 +1,239 @@
+#!/usr/bin/env python
+# coding: utf8
+__doc__ = """
+
+Copyright (C) 2014 Ingo Fruend
+
+This code reproduces the analyses in the paper
+
+    Fruend, Wichmann, Macke (2014): Quantifying the effect of inter-trial dependence on perceptual decisions. J Vis, 14(7): 9.
+
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+    If you use the Software for your own research, cite the paper.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+"""
+
+import history
+import numpy as np
+import pdb
+
+class ColumnData ( history.DataSet ):
+    def __init__ ( self, data, impulse_responses=None, threshold=False, ground_truth=None ):
+        """A data set consisting of multiple columns of data
+
+        :Parameters:
+            *data*
+                an array with 5 columns (block,condition,stimulus,target,response)
+                block should be positive integers, condition, should be positive
+                integers, stimulus should be positive, target should have values of
+                0 and 1, response should have values of 0 and 1.
+            *impulse_responses*
+                an array with the impulse responses of the history filters in the
+                columns. Such an array is most easily constructed using the function
+                history.history_impulses.
+            *threshold*
+                set this to True, if you want the stimulus to be thresholded.
+            *ground_truth*
+                for simulated data, this can be the model instance that
+                contains the generating parameters
+
+        :Example:
+        >>> c = np.array ( [[1,1, 1,0,1], [1,1, 1,1,1], [1,1, 1,0,0], [2,1,.5,1,1], [2,1,.5,0,1], [3,1,.3,1,0]] )
+
+        Example without thresholding
+        >>> d = ColumnData ( c, None )
+        >>> d.X
+        array([[ 1. , -1. ],
+               [ 1. ,  1. ],
+               [ 1. , -1. ],
+               [ 1. ,  0.5],
+               [ 1. , -0.5],
+               [ 1. ,  0.3]])
+        >>> d.r
+        array([ 1.,  1.,  0.,  1.,  1.,  0.])
+        >>> d.th_features
+        []
+        >>> d.hf0
+        2
+        >>> d.getsummary ()
+        array([[-1. ,  1. ,  2. ],
+               [ 1. ,  1. ,  1. ],
+               [-0.5,  1. ,  1. ],
+               [ 0.5,  1. ,  1. ],
+               [ 0.3,  0. ,  1. ]])
+
+
+        Example with thresholding
+        >>> d_th = ColumnData ( c, [], True )
+        >>> d_th.th_features
+        [1]
+
+        Example with multiple conditions
+        >>> c = np.array ( [[1,1, 1,0,1],[1,1, 1,1,1],[2,2, 1,1,0],[2,2, 1,0,1],[3,1,.5,0,0],[3,1,.5,1,0]] )
+        >>> d_m = ColumnData ( c, [] )
+        >>> d_m.X
+        array([[ 1. , -1. ,  0. ],
+               [ 1. ,  1. ,  0. ],
+               [ 1. ,  0. ,  1. ],
+               [ 1. ,  0. , -1. ],
+               [ 1. , -0.5,  0. ],
+               [ 1. ,  0.5,  0. ]])
+        >>> d_m.hf0
+        3
+        """
+        history.DataSet.__init__ ( self, impulse_responses )
+        self.__blocks     = np.sort ( np.unique ( data[:,0] ) )
+        self.__conditions = np.sort ( np.unique ( data[:,1] ) )
+        self.__data       = data
+        self.fname        = data
+        self.__construct_design ( )
+        self.__threshold  = threshold
+        self.__th_features = []
+        self.ground_truth = ground_truth
+
+        if threshold:
+            for i,condition in enumerate ( self.__conditions ):
+                self.__th_features.append ( 1+i )
+    @property
+    def X ( self ):
+        """Design matrix"""
+        return self.__X
+    @property
+    def r ( self ):
+        """response vector"""
+        return self.__r
+
+    def permutation ( self ):
+        """Return a blockwise permutation of the original dataset"""
+        data = self.__data.copy()
+        for block in self.__blocks:
+            block_index = self.__data[:,0] == block
+            these_data  = self.__data[block_index,:]
+            np.random.shuffle ( these_data )
+            data[block_index,:] = these_data
+        C = ColumnData ( data, self.h, self.__threshold )
+        return C.r,C.X
+
+    @property
+    def th_features ( self ):
+        """Features to be thresholded"""
+        return self.__th_features
+
+    @property
+    def hf0 ( self ):
+        """Starting index of history features"""
+        return 1+len(self.__conditions)
+
+    def getsummary ( self, condition=0 ):
+        """A three column summary of the data from one condition"""
+        condition = self.__conditions[condition]
+        condition_index = self.__data[:,1]==condition
+        these_data = self.__data[condition_index,:]
+        blocks = np.unique ( these_data[:,0] )
+        out = []
+        for block in blocks:
+            block_index = these_data[:,0] == block
+            block_data = these_data[block_index,:]
+            stimuli    = block_data[:,2]*np.array( [history.get_code ( z, [-1,1],[0,1] ) for z in block_data[:,3]] )
+            for stimulus in np.unique (stimuli):
+                stim_index = stimuli == stimulus
+                r = block_data[stim_index,4].sum()
+                n = len(block_data[stim_index,4])
+                out.append ( (stimulus,r,n) )
+
+              
+        return np.array ( out )
+
+    def __construct_design ( self ):
+        """Construct the design matrix"""
+        x = []
+        y = []
+        p = []
+        codes_z = [0,1]
+        codes_r = [0,1]
+        nconditions = len(self.__conditions)
+        
+#        print 'self.__blocks', self.__blocks
+
+        for block in self.__blocks:
+            block_index = self.__data[:,0] == block
+            ntrials_this_block = block_index.sum()
+            these_data         = self.__data[block_index,:]
+#            print 'self.__data[:,2]', self.__data[:,2]
+
+            z = these_data[:,3]
+            r = these_data[:,4]
+            x_ = np.zeros ( (ntrials_this_block,1+nconditions) )
+            x_[:,0] = 1.
+
+            for i,condition in enumerate ( self.__conditions ):
+                condition_index = these_data[:,1] == condition
+                condition_data  = these_data[condition_index,:]
+                x_[condition_index,1+i] = condition_data[:,2]*(2*condition_data[:,3]-1)
+
+            z_ = np.zeros ( z.shape )
+            r_ = np.zeros ( z.shape )
+            for i in xrange ( len(z) ):
+                z_[i] = history.get_code ( z[i], [-1,1], codes_z )
+                r_[i] = history.get_code ( r[i], [-1,1], codes_r )
+
+#            print 'self.h', self.h
+            hr = history.history_features ( these_data[:,2], self.h, r_ )
+            hz = history.history_features_stim ( these_data[:,2], self.h, z_ )
+
+            if not hr is None:
+                x_ = np.c_[x_,hr]
+            if not hz is None:
+                x_ = np.c_[x_,hz]
+#            print 'x_', x_
+            correct = z_==r_
+            performance = np.mean ( correct )
+      
+            y.append ( r )
+            x.append ( x_ )
+            p.append ( performance+np.zeros ( r.shape ) )
+            # print 'x', x
+            # print 'np.shape(x)', np.shape(x)
+
+
+        self.__X = np.concatenate ( x, 0 )
+        self.__r = np.concatenate ( y, 0 )
+        self.__p = np.concatenate ( p, 0 )
+        # print "self.__X:",self.__X
+        # print 'self.__X.shape', self.__X.shape
+
+        # print 'self.__X[:,0]', self.__X[:,0]
+        # print 'self.__X[:,1]', self.__X[:,1]
+        # print 'self.__X[:,2]', self.__X[:,2]
+        # print 'self.__X[:,3]', self.__X[:,3]
+        # print 'self.__X[:,4]', self.__X[:,4]
+        # print 'self.__X[:,5]', self.__X[:,5]
+        # print 'self.__X[:,6]', self.__X[:,6]
+        # print 'self.__X[:,7]', self.__X[:,7]
+        # print 'self.__X[:,8]', self.__X[:,8]
+
+
+    def performance_filter ( self, p0=0.75, p1=0.55 ):
+        """Return indices of easy trials and difficult trials
+
+        easy trials: performance better than p1
+        difficult trials: performance between p1 and p0
+        """
+
+        easy = self.__p>p0
+        difficult = np.logical_and ( self.__p>p1, self.__p<=p0 )
+        return easy, difficult
+
+    @property
+    def design ( self ):
+        """the design used by the constructor"""
+        return self.__data.copy()
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod ()
