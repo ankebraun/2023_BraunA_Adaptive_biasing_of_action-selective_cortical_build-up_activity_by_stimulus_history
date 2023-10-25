@@ -5,7 +5,7 @@ for cross validation.
 import pandas as pd
 import numpy as np
 
-df1 = pd.read_csv("meg_behavdata_all_idx.csv", sep="\t")
+df1 = pd.read_csv("Source Data 1.csv", sep="\t")
 df1 = df1.dropna(axis=0, how="any")
 
 for i in range(2, 3):  # repetitive
