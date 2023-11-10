@@ -1,5 +1,5 @@
 # 2023_BraunA_Adaptive_biasing_of_action-selective_cortical_build-up_activity_by_stimulus_history
-Code for Adaptive biasing of action-selective cortical build-up activity by stimulus history. 
+Code for Adaptive biasing of action-selective cortical build-up activity by stimulus history eLife2023;12:RP86740 DOI: https://doi.org/10.7554/eLife.86740.3. 
 
 The logistic regression model with history bias was fitted using a toolbox from (Fründ et al., 2014), which is publicly available under https://bitbucket.org/mackelab/serial_decision/src/master/. 
 Preprocessing of MEG data was done using a Fieldtrip pipeline from (Urai and Donner, 2022), which is publicly available on https://github.com/DonnerLab/2022_Urai_choicehistory_MEG. 
